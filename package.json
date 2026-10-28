@@ -10,7 +10,7 @@
     "dev": "tsx watch src/main.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test dist/tests/http-server.test.js",
+    "test": "npm run build && node --test \"dist/tests/**/*.test.js\"",
     "start": "node dist/src/main.js"
   },
   "devDependencies": {
