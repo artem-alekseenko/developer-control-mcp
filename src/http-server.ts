@@ -1,41 +1,56 @@
-import {
-  createServer,
-  type Server,
-  type ServerResponse,
-} from 'node:http';
+import { createServer, type Server } from 'node:http';
+import { createJsonRpcDispatcher, type JsonRpcHandler } from './protocol/dispatcher.js';
+import { handleMcpPost, sendJson } from './transport/mcp-http.js';
 
-function sendJson(
-  response: ServerResponse,
-  status: number,
-  data: object,
-): void {
-  const body = JSON.stringify(data);
-
-  response.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-    'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff',
-  });
-
-  response.end(body);
+export interface HttpServerOptions {
+  token?: string;
+  handlers?: ReadonlyMap<string, JsonRpcHandler>;
+  allowedOrigins?: readonly string[];
 }
 
-export function createHttpServer(): Server {
-  return createServer((request, response) => {
-    if (request.url !== '/health') {
-      sendJson(response, 404, { error: 'Not Found' });
+export function createHttpServer(options: HttpServerOptions = {}): Server {
+  const dispatch = createJsonRpcDispatcher(options.handlers ?? new Map());
+
+  return createServer({ requestTimeout: 10_000, headersTimeout: 10_000 }, (request, response) => {
+    // Absent Origin is normal for curl and server-side MCP clients.
+    const origin = request.headers.origin;
+    if (origin !== undefined && !options.allowedOrigins?.includes(origin)) {
+      request.resume();
+      sendJson(response, 403, { error: 'Forbidden Origin' });
       return;
     }
 
-    if (request.method !== 'GET') {
-      response.setHeader('Allow', 'GET');
-      sendJson(response, 405, {
-        error: 'Method Not Allowed',
+    if (request.url === '/health') {
+      request.resume();
+      if (request.method !== 'GET') {
+        response.setHeader('Allow', 'GET');
+        sendJson(response, 405, { error: 'Method Not Allowed' });
+      } else {
+        sendJson(response, 200, { status: 'ok' });
+      }
+      return;
+    }
+
+    if (request.url === '/mcp') {
+      if (request.method !== 'POST') {
+        request.resume();
+        response.setHeader('Allow', 'POST');
+        sendJson(response, 405, { error: 'Method Not Allowed' });
+        return;
+      }
+      void handleMcpPost(request, response, dispatch, options.token).catch((error: unknown) => {
+        console.error('HTTP request handling failed:', error);
+        if (!response.headersSent) {
+          sendJson(response, 500, { jsonrpc: '2.0', id: null,
+            error: { code: -32603, message: 'Internal error' } });
+        } else {
+          response.end();
+        }
       });
       return;
     }
 
-    sendJson(response, 200, { status: 'ok' });
+    request.resume();
+    sendJson(response, 404, { error: 'Not Found' });
   });
 }

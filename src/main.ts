@@ -3,7 +3,12 @@ import { createHttpServer } from './http-server.js';
 const HOST = '127.0.0.1';
 const PORT = 3100;
 
-const server = createHttpServer();
+const token = process.env.MCP_DEV_TOKEN;
+if (!token) {
+  console.error('Set MCP_DEV_TOKEN before starting the server');
+  process.exit(1);
+}
+const server = createHttpServer({ token });
 
 server.on('error', (error) => {
   console.error('HTTP server error:', error);
