@@ -1,6 +1,8 @@
 import { createServer, type Server } from 'node:http';
 import { createJsonRpcDispatcher, type JsonRpcHandler } from './protocol/dispatcher.js';
 import { handleMcpPost, sendJson } from './transport/mcp-http.js';
+import { MCP_VERSION } from './transport/mcp-http.js';
+import { createDiscoveryHandler } from './protocol/discovery.js';
 
 export interface HttpServerOptions {
   token?: string;
@@ -9,7 +11,17 @@ export interface HttpServerOptions {
 }
 
 export function createHttpServer(options: HttpServerOptions = {}): Server {
-  const dispatch = createJsonRpcDispatcher(options.handlers ?? new Map());
+  const handlers = new Map<string, JsonRpcHandler>(
+    options.handlers,
+  );
+
+  // Mandatory MCP method, not overridable by external handlers.
+  handlers.set(
+    'server/discover',
+    createDiscoveryHandler(MCP_VERSION),
+  );
+
+  const dispatch = createJsonRpcDispatcher(handlers);
 
   return createServer({ requestTimeout: 10_000, headersTimeout: 10_000 }, (request, response) => {
     // Absent Origin is normal for curl and server-side MCP clients.
